@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Ticket WebSocket Chat Test</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #202124; }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+    input, textarea, button { box-sizing: border-box; padding: 10px; font: inherit; }
+    input { width: 100%; }
+    textarea { width: 100%; min-height: 70px; }
+    button { cursor: pointer; margin: 8px 6px 8px 0; }
+    #status { margin: 12px 0; font-weight: 700; }
+    #log { border: 1px solid #bbb; border-radius: 8px; padding: 12px; height: 300px; overflow: auto; white-space: pre-wrap; background: #fafafa; }
+    .row { display: flex; gap: 12px; } .row > div { flex: 1; }
+    .hint { color: #555; font-size: .92rem; }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Support Ticket Chat Test</h1>
+  <p class="hint">Connect in two browser tabs: use a customer token in one and the assigned agent token in the other. Keep access tokens private.</p>
+  <label for="token">JWT access token</label>
+  <input id="token" type="password" autocomplete="off" placeholder="Paste access_token from /auth/login">
+  <div class="row">
+    <div><label for="ticketId">Ticket ID</label><input id="ticketId" type="number" min="1" value="1"></div>
+    <div><label for="kind">Message type</label><select id="kind"><option value="message">Public message</option><option value="internal">Internal note (Agent/Admin only)</option><option value="typing">Typing indicator</option></select></div>
+  </div>
+  <button id="connect">Connect</button><button id="disconnect" disabled>Disconnect</button>
+  <div id="status">Disconnected</div>
+  <div id="log" aria-live="polite"></div>
+  <label for="message">Message</label>
+  <textarea id="message" maxlength="1999" placeholder="Type a message..."></textarea>
+  <button id="send" disabled>Send</button>
+  <script>
+    let socket = null;
+    const statusEl = document.getElementById('status');
+    const log = document.getElementById('log');
+    function write(value) {
+      const line = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+      log.textContent += line + '\n\n';
+      log.scrollTop = log.scrollHeight;
+    }
+    document.getElementById('connect').addEventListener('click', () => {
+      const token = document.getElementById('token').value.trim();
+      const id = document.getElementById('ticketId').value;
+      if (!token || !id) { alert('Enter a token and ticket ID.'); return; }
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(`${scheme}//${location.host}/ws/tickets/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`);
+      socket.onopen = () => { statusEl.textContent = 'Connected'; document.getElementById('send').disabled = false; document.getElementById('disconnect').disabled = false; write('Connected to ticket ' + id); };
+      socket.onmessage = event => { try { write(JSON.parse(event.data)); } catch { write(event.data); } };
+      socket.onerror = () => write('WebSocket error. Check token, ticket access, and server logs.');
+      socket.onclose = event => { statusEl.textContent = `Disconnected (code ${event.code})`; document.getElementById('send').disabled = true; document.getElementById('disconnect').disabled = true; };
+    });
+    document.getElementById('disconnect').addEventListener('click', () => { if (socket) socket.close(); });
+    document.getElementById('send').addEventListener('click', () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      const mode = document.getElementById('kind').value;
+      if (mode === 'typing') {
+        socket.send(JSON.stringify({ type: 'typing', is_typing: true }));
+        return;
+      }
+      const message = document.getElementById('message').value.trim();
+      if (!message) return;
+      socket.send(JSON.stringify({ type: 'message', message, is_internal_note: mode === 'internal' }));
+      document.getElementById('message').value = '';
+    });
+  </script>
+</body>
+</html>
